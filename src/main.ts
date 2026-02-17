@@ -72,6 +72,7 @@ type Params = {
     clearTrails: () => void
     resetAngles: () => void
     resetAll: () => void
+    resetToDefault: () => void
   }
 }
 
@@ -145,7 +146,126 @@ function clearTrails() {
   trailsCtx.fillRect(0, 0, w, h)
 }
 
-const params: Params = {
+// Parse URL parameters
+function parseURLParams(): Partial<Params> {
+  const urlParams = new URLSearchParams(window.location.search)
+  const parsed: any = {}
+
+  // Motion parameters
+  const timeScale = urlParams.get('timeScale')
+  const omegaGlobal = urlParams.get('omegaGlobal')
+  const omegaTop = urlParams.get('omegaTop')
+  const omegaBottom = urlParams.get('omegaBottom')
+  const dtClampMax = urlParams.get('dtClampMax')
+
+  if (timeScale || omegaGlobal || omegaTop || omegaBottom || dtClampMax) {
+    parsed.motion = {}
+    if (timeScale) parsed.motion.timeScale = parseFloat(timeScale)
+    if (omegaGlobal) parsed.motion.omegaGlobal = parseFloat(omegaGlobal)
+    if (omegaTop) parsed.motion.omegaTop = parseFloat(omegaTop)
+    if (omegaBottom) parsed.motion.omegaBottom = parseFloat(omegaBottom)
+    if (dtClampMax) parsed.motion.dtClampMax = parseFloat(dtClampMax)
+  }
+
+  // Geometry parameters
+  const axisOffsetRatio = urlParams.get('axisOffsetRatio')
+  const armLenRatio = urlParams.get('armLenRatio')
+
+  if (axisOffsetRatio || armLenRatio) {
+    parsed.geometry = {}
+    if (axisOffsetRatio) parsed.geometry.axisOffsetRatio = parseFloat(axisOffsetRatio)
+    if (armLenRatio) parsed.geometry.armLenRatio = parseFloat(armLenRatio)
+  }
+
+  // Trails parameters
+  const fadeAlpha = urlParams.get('fadeAlpha')
+  const width = urlParams.get('width')
+  const alpha = urlParams.get('alpha')
+  const passes = urlParams.get('passes')
+  const maxSegmentRatio = urlParams.get('maxSegmentRatio')
+
+  if (fadeAlpha || width || alpha || passes || maxSegmentRatio) {
+    parsed.trails = {}
+    if (fadeAlpha) parsed.trails.fadeAlpha = parseFloat(fadeAlpha)
+    if (width) parsed.trails.width = parseFloat(width)
+    if (alpha) parsed.trails.alpha = parseFloat(alpha)
+    if (passes) parsed.trails.passes = parseInt(passes)
+    if (maxSegmentRatio) parsed.trails.maxSegmentRatio = parseFloat(maxSegmentRatio)
+  }
+
+  // Overlay parameters
+  const rodWidth = urlParams.get('rodWidth')
+  const rodAlpha = urlParams.get('rodAlpha')
+  const rodColor = urlParams.get('rodColor')
+  const axisColor = urlParams.get('axisColor')
+  const axisShadowBlur = urlParams.get('axisShadowBlur')
+  const centerAxisRadius = urlParams.get('centerAxisRadius')
+  const rotorAxisRadius = urlParams.get('rotorAxisRadius')
+  const pointRadius = urlParams.get('pointRadius')
+  const pointShadowBlur = urlParams.get('pointShadowBlur')
+
+  if (rodWidth || rodAlpha || rodColor || axisColor || axisShadowBlur || 
+      centerAxisRadius || rotorAxisRadius || pointRadius || pointShadowBlur) {
+    parsed.overlay = {}
+    if (rodWidth) parsed.overlay.rodWidth = parseFloat(rodWidth)
+    if (rodAlpha) parsed.overlay.rodAlpha = parseFloat(rodAlpha)
+    if (rodColor) parsed.overlay.rodColor = '#' + rodColor.replace('#', '')
+    if (axisColor) parsed.overlay.axisColor = '#' + axisColor.replace('#', '')
+    if (axisShadowBlur) parsed.overlay.axisShadowBlur = parseFloat(axisShadowBlur)
+    if (centerAxisRadius) parsed.overlay.centerAxisRadius = parseFloat(centerAxisRadius)
+    if (rotorAxisRadius) parsed.overlay.rotorAxisRadius = parseFloat(rotorAxisRadius)
+    if (pointRadius) parsed.overlay.pointRadius = parseFloat(pointRadius)
+    if (pointShadowBlur) parsed.overlay.pointShadowBlur = parseFloat(pointShadowBlur)
+  }
+
+  // Colors
+  const topL = urlParams.get('topL')
+  const topR = urlParams.get('topR')
+  const botL = urlParams.get('botL')
+  const botR = urlParams.get('botR')
+
+  if (topL || topR || botL || botR) {
+    parsed.colors = {}
+    if (topL) parsed.colors.topL = '#' + topL.replace('#', '')
+    if (topR) parsed.colors.topR = '#' + topR.replace('#', '')
+    if (botL) parsed.colors.botL = '#' + botL.replace('#', '')
+    if (botR) parsed.colors.botR = '#' + botR.replace('#', '')
+  }
+
+  // State parameters
+  const thetaGlobal = urlParams.get('thetaGlobal')
+  const thetaTop = urlParams.get('thetaTop')
+  const thetaBottom = urlParams.get('thetaBottom')
+
+  if (thetaGlobal || thetaTop || thetaBottom) {
+    parsed.state = {}
+    if (thetaGlobal) parsed.state.thetaGlobal = parseFloat(thetaGlobal)
+    if (thetaTop) parsed.state.thetaTop = parseFloat(thetaTop)
+    if (thetaBottom) parsed.state.thetaBottom = parseFloat(thetaBottom)
+  }
+
+  return parsed
+}
+
+// Deep merge helper
+function deepMerge<T>(target: T, source: Partial<T>): T {
+  const result = { ...target }
+  for (const key in source) {
+    const sourceValue = source[key]
+    const targetValue = result[key]
+    if (sourceValue !== undefined) {
+      if (typeof sourceValue === 'object' && sourceValue !== null && !Array.isArray(sourceValue) &&
+          typeof targetValue === 'object' && targetValue !== null && !Array.isArray(targetValue)) {
+        result[key] = deepMerge(targetValue, sourceValue as any)
+      } else {
+        result[key] = sourceValue as any
+      }
+    }
+  }
+  return result
+}
+
+const defaultParams: Params = {
   running: true,
   motion: {
     timeScale: 1.0,
@@ -191,18 +311,121 @@ const params: Params = {
     thetaBottom: 0,
   },
   actions: {
-    clearTrails: () => clearTrails(),
-    resetAngles: () => {
-      params.state.thetaGlobal = 0
-      params.state.thetaTop = 0
-      params.state.thetaBottom = 0
-    },
-    resetAll: () => {
-      params.actions.resetAngles()
-      params.actions.clearTrails()
-    },
+    clearTrails: () => {},
+    resetAngles: () => {},
+    resetAll: () => {},
+    resetToDefault: () => {},
   },
 }
+
+// Merge URL parameters with defaults
+const urlOverrides = parseURLParams()
+const params: Params = deepMerge(defaultParams, urlOverrides)
+
+type ControllerLike = { updateDisplay: () => void }
+const guiControllers: ControllerLike[] = []
+
+// Set up actions after params is created
+params.actions = {
+  clearTrails: () => clearTrails(),
+  resetAngles: () => {
+    params.state.thetaGlobal = 0
+    params.state.thetaTop = 0
+    params.state.thetaBottom = 0
+  },
+  resetAll: () => {
+    params.actions.resetAngles()
+    params.actions.clearTrails()
+  },
+  resetToDefault: () => {
+    params.running = defaultParams.running
+
+    params.motion.timeScale = defaultParams.motion.timeScale
+    params.motion.omegaGlobal = defaultParams.motion.omegaGlobal
+    params.motion.omegaTop = defaultParams.motion.omegaTop
+    params.motion.omegaBottom = defaultParams.motion.omegaBottom
+    params.motion.dtClampMax = defaultParams.motion.dtClampMax
+
+    params.geometry.axisOffsetRatio = defaultParams.geometry.axisOffsetRatio
+    params.geometry.armLenRatio = defaultParams.geometry.armLenRatio
+
+    params.trails.fadeAlpha = defaultParams.trails.fadeAlpha
+    params.trails.width = defaultParams.trails.width
+    params.trails.alpha = defaultParams.trails.alpha
+    params.trails.passes = defaultParams.trails.passes
+    params.trails.maxSegmentRatio = defaultParams.trails.maxSegmentRatio
+
+    params.overlay.rodWidth = defaultParams.overlay.rodWidth
+    params.overlay.rodAlpha = defaultParams.overlay.rodAlpha
+    params.overlay.rodColor = defaultParams.overlay.rodColor
+    params.overlay.axisColor = defaultParams.overlay.axisColor
+    params.overlay.axisShadowBlur = defaultParams.overlay.axisShadowBlur
+    params.overlay.centerAxisRadius = defaultParams.overlay.centerAxisRadius
+    params.overlay.rotorAxisRadius = defaultParams.overlay.rotorAxisRadius
+    params.overlay.pointRadius = defaultParams.overlay.pointRadius
+    params.overlay.pointShadowBlur = defaultParams.overlay.pointShadowBlur
+
+    params.colors.topL = defaultParams.colors.topL
+    params.colors.topR = defaultParams.colors.topR
+    params.colors.botL = defaultParams.colors.botL
+    params.colors.botR = defaultParams.colors.botR
+
+    // Also reset current state & visuals.
+    params.state.thetaGlobal = defaultParams.state.thetaGlobal
+    params.state.thetaTop = defaultParams.state.thetaTop
+    params.state.thetaBottom = defaultParams.state.thetaBottom
+    params.actions.clearTrails()
+
+    for (const c of guiControllers) c.updateDisplay()
+    syncUrlFromParams()
+  },
+}
+
+function syncUrlFromParams() {
+  const url = new URL(window.location.href)
+  const sp = url.searchParams
+
+  // NOTE: we intentionally always set values (including defaults).
+  // This makes it obvious the URL is updating and avoids string/float equality edge cases.
+  const toUrlColor = (c: string) => c.trim().replace(/^#/, '').toLowerCase()
+
+  // Don't store runtime state in URL.
+  // Also clean up any legacy keys if present.
+  sp.delete('running')
+  sp.delete('isrunning')
+
+  // motion
+  sp.set('timeScale', String(params.motion.timeScale))
+  sp.set('omegaGlobal', String(params.motion.omegaGlobal))
+  sp.set('omegaTop', String(params.motion.omegaTop))
+  sp.set('omegaBottom', String(params.motion.omegaBottom))
+  sp.set('dtClampMax', String(params.motion.dtClampMax))
+
+  // geometry
+  sp.set('axisOffsetRatio', String(params.geometry.axisOffsetRatio))
+  sp.set('armLenRatio', String(params.geometry.armLenRatio))
+
+  // trails
+  sp.set('fadeAlpha', String(params.trails.fadeAlpha))
+  sp.set('width', String(params.trails.width))
+  sp.set('alpha', String(params.trails.alpha))
+  sp.set('passes', String(params.trails.passes))
+  sp.set('maxSegmentRatio', String(params.trails.maxSegmentRatio))
+
+  // overlay (GUI-exposed)
+  sp.set('rodAlpha', String(params.overlay.rodAlpha))
+  sp.set('axisColor', toUrlColor(params.overlay.axisColor))
+
+  // colors
+  sp.set('topL', toUrlColor(params.colors.topL))
+  sp.set('topR', toUrlColor(params.colors.topR))
+  sp.set('botL', toUrlColor(params.colors.botL))
+  sp.set('botR', toUrlColor(params.colors.botR))
+
+  history.replaceState(null, '', url)
+}
+
+let lastUrlSyncAtMs = 0
 
 // --- GUI ---
 const GUI_KEY = '__VORTEX_GUI__'
@@ -211,40 +434,67 @@ prevGui?.destroy()
 
 const gui = new GUI({ title: 'Vortex' })
 ;(globalThis as unknown as Record<string, unknown>)[GUI_KEY] = gui
-const runningController = gui.add(params, 'running').name('running')
+const runningController = gui.add(params, 'running').name('running').onChange(syncUrlFromParams)
+guiControllers.push(runningController)
 
 const fMotion = gui.addFolder('motion')
-fMotion.add(params.motion, 'timeScale', 0.05, 5, 0.05).name('timeScale')
-fMotion.add(params.motion, 'omegaGlobal', -10, 10, 0.01).name('omegaGlobal')
-fMotion.add(params.motion, 'omegaTop', -10, 10, 0.01).name('omegaTop')
-fMotion.add(params.motion, 'omegaBottom', -10, 10, 0.01).name('omegaBottom')
-fMotion.add(params.motion, 'dtClampMax', 0.001, 0.25, 0.001).name('dtClampMax')
+guiControllers.push(
+  fMotion.add(params.motion, 'timeScale', 0.05, 5, 0.05).name('timeScale').onChange(syncUrlFromParams),
+)
+guiControllers.push(
+  fMotion.add(params.motion, 'omegaGlobal', -10, 10, 0.01).name('omegaGlobal').onChange(syncUrlFromParams),
+)
+guiControllers.push(fMotion.add(params.motion, 'omegaTop', -10, 10, 0.01).name('omegaTop').onChange(syncUrlFromParams))
+guiControllers.push(
+  fMotion.add(params.motion, 'omegaBottom', -10, 10, 0.01).name('omegaBottom').onChange(syncUrlFromParams),
+)
+guiControllers.push(
+  fMotion.add(params.motion, 'dtClampMax', 0.001, 0.25, 0.001).name('dtClampMax').onChange(syncUrlFromParams),
+)
 
 const fGeometry = gui.addFolder('geometry')
-fGeometry.add(params.geometry, 'axisOffsetRatio', 0, 0.5, 0.001).name('axisOffsetRatio')
-fGeometry.add(params.geometry, 'armLenRatio', 0, 0.5, 0.001).name('armLenRatio')
+guiControllers.push(
+  fGeometry
+    .add(params.geometry, 'axisOffsetRatio', 0, 0.5, 0.001)
+    .name('axisOffsetRatio')
+    .onChange(syncUrlFromParams),
+)
+guiControllers.push(
+  fGeometry.add(params.geometry, 'armLenRatio', 0, 0.5, 0.001).name('armLenRatio').onChange(syncUrlFromParams),
+)
 
 const fTrails = gui.addFolder('trails')
-fTrails.add(params.trails, 'fadeAlpha', 0, 0.025, 0.005).name('fadeAlpha')
-fTrails.add(params.trails, 'width', 0.1, 5, 0.05).name('width')
-fTrails.add(params.trails, 'alpha', 0, 5, 0.05).name('alpha')
-fTrails.add(params.trails, 'passes', 1, 40, 1).name('passes')
-fTrails.add(params.trails, 'maxSegmentRatio', 0, 0.2, 0.01).name('maxSegmentRatio')
+guiControllers.push(
+  fTrails.add(params.trails, 'fadeAlpha', 0, 0.025, 0.005).name('fadeAlpha').onChange(syncUrlFromParams),
+)
+guiControllers.push(fTrails.add(params.trails, 'width', 0.1, 5, 0.05).name('width').onChange(syncUrlFromParams))
+guiControllers.push(fTrails.add(params.trails, 'alpha', 0, 5, 0.05).name('alpha').onChange(syncUrlFromParams))
+guiControllers.push(fTrails.add(params.trails, 'passes', 1, 40, 1).name('passes').onChange(syncUrlFromParams))
+guiControllers.push(
+  fTrails
+    .add(params.trails, 'maxSegmentRatio', 0, 0.2, 0.01)
+    .name('maxSegmentRatio')
+    .onChange(syncUrlFromParams),
+)
 
 const fOverlay = gui.addFolder('overlay')
-fOverlay.add(params.overlay, 'rodAlpha', 0, 1, 0.01).name('rodAlpha')
-fOverlay.addColor(params.overlay, 'axisColor').name('axisColor')
+guiControllers.push(fOverlay.add(params.overlay, 'rodAlpha', 0, 1, 0.01).name('rodAlpha').onChange(syncUrlFromParams))
+guiControllers.push(fOverlay.addColor(params.overlay, 'axisColor').name('axisColor').onChange(syncUrlFromParams))
 
 const fColors = gui.addFolder('colors')
-fColors.addColor(params.colors, 'topL').name('topL')
-fColors.addColor(params.colors, 'topR').name('topR')
-fColors.addColor(params.colors, 'botL').name('botL')
-fColors.addColor(params.colors, 'botR').name('botR')
+guiControllers.push(fColors.addColor(params.colors, 'topL').name('topL').onChange(syncUrlFromParams))
+guiControllers.push(fColors.addColor(params.colors, 'topR').name('topR').onChange(syncUrlFromParams))
+guiControllers.push(fColors.addColor(params.colors, 'botL').name('botL').onChange(syncUrlFromParams))
+guiControllers.push(fColors.addColor(params.colors, 'botR').name('botR').onChange(syncUrlFromParams))
 
 const fActions = gui.addFolder('actions')
 fActions.add(params.actions, 'clearTrails').name('clearTrails')
 fActions.add(params.actions, 'resetAngles').name('resetAngles')
 fActions.add(params.actions, 'resetAll').name('resetAll')
+fActions.add(params.actions, 'resetToDefault').name('resetToDefault')
+
+// Ensure URL reflects current GUI state immediately.
+syncUrlFromParams()
 
 function getGeometry() {
   const minDim = Math.min(w, h)
@@ -402,6 +652,13 @@ function frame(t: number) {
   const dt = (t - lastT) / 1000
   lastT = t
   if (params.running) step(dt)
+
+  // Fallback: keep URL in sync even if GUI callbacks fail.
+  if (t - lastUrlSyncAtMs > 250) {
+    lastUrlSyncAtMs = t
+    syncUrlFromParams()
+  }
+
   rafId = requestAnimationFrame(frame)
 }
 

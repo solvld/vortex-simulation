@@ -27,6 +27,23 @@ Open the printed local URL in your browser.
 - **Space**: pause / resume
 - **R**: clear trails
 
+### URL Parameters
+
+You can set initial parameters via URL query string. All GUI parameters are supported:
+
+**Example:**
+```
+http://localhost:5173/?omegaGlobal=1.5&omegaTop=3&fadeAlpha=0.005&topL=ff0000
+```
+
+**Available parameters:**
+
+- **Motion**: `timeScale`, `omegaGlobal`, `omegaTop`, `omegaBottom`, `dtClampMax`
+- **Geometry**: `axisOffsetRatio`, `armLenRatio`
+- **Trails**: `fadeAlpha`, `width`, `alpha`, `passes`, `maxSegmentRatio`
+- **Overlay**: `rodWidth`, `rodAlpha`, `rodColor`, `axisColor`, `axisShadowBlur`, `centerAxisRadius`, `rotorAxisRadius`, `pointRadius`, `pointShadowBlur`
+- **Colors**: `topL`, `topR`, `botL`, `botR` (hex colors without `#`, e.g., `ff3b30`)
+- **State**: `thetaGlobal`, `thetaTop`, `thetaBottom` (initial angles in radians)
 ### GUI (lil-gui)
 
 All simulation parameters can be adjusted in real-time via the GUI panel:
