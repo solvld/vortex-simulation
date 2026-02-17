@@ -1,6 +1,9 @@
 import './style.css'
+import GUI from 'lil-gui'
 
 type Vec2 = { x: number; y: number }
+
+type PointId = 'topL' | 'topR' | 'botL' | 'botR'
 
 function add(a: Vec2, b: Vec2): Vec2 {
   return { x: a.x + b.x, y: a.y + b.y }
@@ -23,10 +26,53 @@ function dist(a: Vec2, b: Vec2): number {
 }
 
 type TracedPoint = {
-  id: string
-  color: string
+  id: PointId
   prev?: Vec2
   now?: Vec2
+}
+
+type Params = {
+  running: boolean
+  motion: {
+    timeScale: number
+    omegaGlobal: number
+    omegaTop: number
+    omegaBottom: number
+    dtClampMax: number
+  }
+  geometry: {
+    axisOffsetRatio: number
+    armLenRatio: number
+  }
+  trails: {
+    fadeAlpha: number
+    width: number
+    alpha: number
+    passes: number
+    maxSegmentRatio: number
+  }
+  overlay: {
+    rodWidth: number
+    rodAlpha: number
+    rodColor: string
+    axisColor: string
+    axisShadowBlur: number
+    centerAxisRadius: number
+    rotorAxisRadius: number
+    pointRadius: number
+    pointShadowBlur: number
+  }
+  colors: Record<PointId, string>
+  state: {
+    thetaGlobal: number
+    thetaTop: number
+    thetaBottom: number
+  }
+  actions: {
+    clearTrails: () => void
+    resetAngles: () => void
+    resetAll: () => void
+  }
 }
 
 const appEl = document.querySelector<HTMLDivElement>('#app')
@@ -81,44 +127,138 @@ resize()
 
 // --- Simulation parameters (tuned for “spirograph-like” trajectories) ---
 const points: TracedPoint[] = [
-  { id: 'topL', color: '#ff3b30' }, // red
-  { id: 'topR', color: '#ff9f0a' }, // orange
-  { id: 'botL', color: '#0a84ff' }, // blue
-  { id: 'botR', color: '#bf5af2' }, // purple
+  { id: 'topL' }, // red
+  { id: 'topR' }, // orange
+  { id: 'botL' }, // blue
+  { id: 'botR' }, // purple
 ]
 
-let running = true
 let lastT = performance.now()
 
-// Angles
-let thetaGlobal = 0
-let thetaTop = 0
-let thetaBottom = 0
+function clearTrails() {
+  for (const p of points) {
+    p.prev = undefined
+    p.now = undefined
+  }
+  trailsCtx.globalCompositeOperation = 'source-over'
+  trailsCtx.fillStyle = 'black'
+  trailsCtx.fillRect(0, 0, w, h)
+}
 
-// Angular velocities (rad/s)
-const omegaGlobal = 0.45
-const omegaTop = 2.2
-const omegaBottom = -1.6
+const params: Params = {
+  running: true,
+  motion: {
+    timeScale: 1.0,
+    // Angular velocities (rad/s)
+    omegaGlobal: 0.45,
+    omegaTop: 2,
+    omegaBottom: -2,
+    // Clamp dt to keep things stable after tab switching.
+    dtClampMax: 0.05,
+  },
+  geometry: {
+    axisOffsetRatio: 0.22,
+    armLenRatio: 0.18,
+  },
+  trails: {
+    fadeAlpha: 0.01, // smaller => longer trails
+    width: 1.25,
+    alpha: 3,
+    passes: 5, // multiple passes => more contrast, same thickness
+    maxSegmentRatio: 0.05, // prevents long “tails” on jumps
+  },
+  overlay: {
+    rodWidth: 3,
+    rodAlpha: 0.35,
+    rodColor: '#dcdcdc',
+    axisColor: '#34c759',
+    axisShadowBlur: 10,
+    centerAxisRadius: 7,
+    rotorAxisRadius: 8,
+    pointRadius: 9,
+    pointShadowBlur: 16,
+  },
+  colors: {
+    topL: '#ff3b30',
+    topR: '#ff9f0a',
+    botL: '#0a84ff',
+    botR: '#bf5af2',
+  },
+  state: {
+    // Angles
+    thetaGlobal: 0,
+    thetaTop: 0,
+    thetaBottom: 0,
+  },
+  actions: {
+    clearTrails: () => clearTrails(),
+    resetAngles: () => {
+      params.state.thetaGlobal = 0
+      params.state.thetaTop = 0
+      params.state.thetaBottom = 0
+    },
+    resetAll: () => {
+      params.actions.resetAngles()
+      params.actions.clearTrails()
+    },
+  },
+}
 
-// Visual settings
-const trailFadeAlpha = 0.01 // smaller => longer trails
-const trailWidth = 1.25
-const trailAlpha = 3
-const trailPasses = 5 // multiple passes => more contrast, same thickness
+// --- GUI ---
+const GUI_KEY = '__VORTEX_GUI__'
+const prevGui = (globalThis as unknown as Record<string, unknown>)[GUI_KEY] as GUI | undefined
+prevGui?.destroy()
+
+const gui = new GUI({ title: 'Vortex' })
+;(globalThis as unknown as Record<string, unknown>)[GUI_KEY] = gui
+const runningController = gui.add(params, 'running').name('running')
+
+const fMotion = gui.addFolder('motion')
+fMotion.add(params.motion, 'timeScale', 0.05, 5, 0.05).name('timeScale')
+fMotion.add(params.motion, 'omegaGlobal', -10, 10, 0.01).name('omegaGlobal')
+fMotion.add(params.motion, 'omegaTop', -10, 10, 0.01).name('omegaTop')
+fMotion.add(params.motion, 'omegaBottom', -10, 10, 0.01).name('omegaBottom')
+fMotion.add(params.motion, 'dtClampMax', 0.001, 0.25, 0.001).name('dtClampMax')
+
+const fGeometry = gui.addFolder('geometry')
+fGeometry.add(params.geometry, 'axisOffsetRatio', 0, 0.5, 0.001).name('axisOffsetRatio')
+fGeometry.add(params.geometry, 'armLenRatio', 0, 0.5, 0.001).name('armLenRatio')
+
+const fTrails = gui.addFolder('trails')
+fTrails.add(params.trails, 'fadeAlpha', 0, 0.025, 0.005).name('fadeAlpha')
+fTrails.add(params.trails, 'width', 0.1, 5, 0.05).name('width')
+fTrails.add(params.trails, 'alpha', 0, 5, 0.05).name('alpha')
+fTrails.add(params.trails, 'passes', 1, 40, 1).name('passes')
+fTrails.add(params.trails, 'maxSegmentRatio', 0, 0.2, 0.01).name('maxSegmentRatio')
+
+const fOverlay = gui.addFolder('overlay')
+fOverlay.add(params.overlay, 'rodAlpha', 0, 1, 0.01).name('rodAlpha')
+fOverlay.addColor(params.overlay, 'axisColor').name('axisColor')
+
+const fColors = gui.addFolder('colors')
+fColors.addColor(params.colors, 'topL').name('topL')
+fColors.addColor(params.colors, 'topR').name('topR')
+fColors.addColor(params.colors, 'botL').name('botL')
+fColors.addColor(params.colors, 'botR').name('botR')
+
+const fActions = gui.addFolder('actions')
+fActions.add(params.actions, 'clearTrails').name('clearTrails')
+fActions.add(params.actions, 'resetAngles').name('resetAngles')
+fActions.add(params.actions, 'resetAll').name('resetAll')
 
 function getGeometry() {
   const minDim = Math.min(w, h)
   const center: Vec2 = { x: w / 2, y: h / 2 }
-  const axisOffset = 0.22 * minDim
-  const armLen = 0.18 * minDim
+  const axisOffset = params.geometry.axisOffsetRatio * minDim
+  const armLen = params.geometry.armLenRatio * minDim
 
   // Rotor centers orbit around the middle axis (big rotation).
-  const topAxis = add(center, rotate({ x: 0, y: -axisOffset }, thetaGlobal))
-  const bottomAxis = add(center, rotate({ x: 0, y: axisOffset }, thetaGlobal))
+  const topAxis = add(center, rotate({ x: 0, y: -axisOffset }, params.state.thetaGlobal))
+  const bottomAxis = add(center, rotate({ x: 0, y: axisOffset }, params.state.thetaGlobal))
 
   // Arms rotate in the assembly frame (so total orientation is global + local).
-  const topArmAngle = thetaGlobal + thetaTop
-  const bottomArmAngle = thetaGlobal + thetaBottom
+  const topArmAngle = params.state.thetaGlobal + params.state.thetaTop
+  const bottomArmAngle = params.state.thetaGlobal + params.state.thetaBottom
 
   const armVecR = (angle: number) => rotate({ x: armLen, y: 0 }, angle)
   const armVecL = (angle: number) => rotate({ x: -armLen, y: 0 }, angle)
@@ -133,7 +273,7 @@ function getGeometry() {
 
 function fadeTrails() {
   trailsCtx.globalCompositeOperation = 'source-over'
-  trailsCtx.fillStyle = `rgba(0, 0, 0, ${trailFadeAlpha})`
+  trailsCtx.fillStyle = `rgba(0, 0, 0, ${params.trails.fadeAlpha})`
   trailsCtx.fillRect(0, 0, w, h)
 }
 
@@ -142,13 +282,13 @@ function drawTrailSegment(p: TracedPoint) {
 
   trailsCtx.save()
   trailsCtx.globalCompositeOperation = 'source-over'
-  trailsCtx.globalAlpha = trailAlpha
+  trailsCtx.globalAlpha = params.trails.alpha
   trailsCtx.lineCap = 'round'
   trailsCtx.lineJoin = 'round'
-  trailsCtx.lineWidth = trailWidth
-  trailsCtx.strokeStyle = p.color
+  trailsCtx.lineWidth = params.trails.width
+  trailsCtx.strokeStyle = params.colors[p.id]
 
-  for (let i = 0; i < trailPasses; i++) {
+  for (let i = 0; i < params.trails.passes; i++) {
     trailsCtx.beginPath()
     trailsCtx.moveTo(p.prev.x, p.prev.y)
     trailsCtx.lineTo(p.now.x, p.now.y)
@@ -162,8 +302,9 @@ function drawOverlay(geom: ReturnType<typeof getGeometry>) {
 
   // Rods
   overlayCtx.save()
-  overlayCtx.strokeStyle = 'rgba(220, 220, 220, 0.35)'
-  overlayCtx.lineWidth = 3
+  overlayCtx.globalAlpha = params.overlay.rodAlpha
+  overlayCtx.strokeStyle = params.overlay.rodColor
+  overlayCtx.lineWidth = params.overlay.rodWidth
   overlayCtx.lineCap = 'round'
 
   overlayCtx.beginPath()
@@ -183,52 +324,50 @@ function drawOverlay(geom: ReturnType<typeof getGeometry>) {
   overlayCtx.restore()
 
   // Axes (green)
-  const axisColor = '#34c759'
   const drawAxis = (p: Vec2, r: number) => {
     overlayCtx.save()
-    overlayCtx.fillStyle = axisColor
-    overlayCtx.shadowColor = axisColor
-    overlayCtx.shadowBlur = 10
+    overlayCtx.fillStyle = params.overlay.axisColor
+    overlayCtx.shadowColor = params.overlay.axisColor
+    overlayCtx.shadowBlur = params.overlay.axisShadowBlur
     overlayCtx.beginPath()
     overlayCtx.arc(p.x, p.y, r, 0, Math.PI * 2)
     overlayCtx.fill()
     overlayCtx.restore()
   }
 
-  drawAxis(geom.center, 7)
-  drawAxis(geom.topAxis, 8)
-  drawAxis(geom.bottomAxis, 8)
+  drawAxis(geom.center, params.overlay.centerAxisRadius)
+  drawAxis(geom.topAxis, params.overlay.rotorAxisRadius)
+  drawAxis(geom.bottomAxis, params.overlay.rotorAxisRadius)
 
   // Current points (colored)
   const drawPoint = (p: Vec2, color: string) => {
     overlayCtx.save()
     overlayCtx.fillStyle = color
     overlayCtx.shadowColor = color
-    overlayCtx.shadowBlur = 16
+    overlayCtx.shadowBlur = params.overlay.pointShadowBlur
     overlayCtx.beginPath()
-    overlayCtx.arc(p.x, p.y, 9, 0, Math.PI * 2)
+    overlayCtx.arc(p.x, p.y, params.overlay.pointRadius, 0, Math.PI * 2)
     overlayCtx.fill()
     overlayCtx.restore()
   }
 
-  drawPoint(geom.topL, points[0].color)
-  drawPoint(geom.topR, points[1].color)
-  drawPoint(geom.botL, points[2].color)
-  drawPoint(geom.botR, points[3].color)
+  drawPoint(geom.topL, params.colors.topL)
+  drawPoint(geom.topR, params.colors.topR)
+  drawPoint(geom.botL, params.colors.botL)
+  drawPoint(geom.botR, params.colors.botR)
 }
 
 function step(dt: number) {
-  // Clamp dt to keep things stable after tab switching.
-  const dts = clamp(dt, 0, 0.05)
-  thetaGlobal += omegaGlobal * dts
-  thetaTop += omegaTop * dts
-  thetaBottom += omegaBottom * dts
+  const dts = clamp(dt, 0, params.motion.dtClampMax) * params.motion.timeScale
+  params.state.thetaGlobal += params.motion.omegaGlobal * dts
+  params.state.thetaTop += params.motion.omegaTop * dts
+  params.state.thetaBottom += params.motion.omegaBottom * dts
 
   const geom = getGeometry()
-  const maxSegment = 0.025 * Math.min(w, h) // prevents long “tails” on jumps
+  const maxSegment = params.trails.maxSegmentRatio * Math.min(w, h) // prevents long “tails” on jumps
 
   // Update point positions (for trail segments)
-  const nextPositions: Record<string, Vec2> = {
+  const nextPositions: Record<PointId, Vec2> = {
     topL: geom.topL,
     topR: geom.topR,
     botL: geom.botL,
@@ -262,22 +401,31 @@ function step(dt: number) {
 function frame(t: number) {
   const dt = (t - lastT) / 1000
   lastT = t
-  if (running) step(dt)
-  requestAnimationFrame(frame)
+  if (params.running) step(dt)
+  rafId = requestAnimationFrame(frame)
 }
 
-requestAnimationFrame(frame)
+let rafId = requestAnimationFrame(frame)
+
+function onKeyDown(e: KeyboardEvent) {
+  if (e.code === 'Space') {
+    params.running = !params.running
+    runningController.setValue(params.running)
+  }
+  if (e.key.toLowerCase() === 'r') {
+    params.actions.clearTrails()
+  }
+}
 
 // Small controls (optional but handy)
-window.addEventListener('keydown', (e) => {
-  if (e.code === 'Space') running = !running
-  if (e.key.toLowerCase() === 'r') {
-    for (const p of points) {
-      p.prev = undefined
-      p.now = undefined
-    }
-    trailsCtx.globalCompositeOperation = 'source-over'
-    trailsCtx.fillStyle = 'black'
-    trailsCtx.fillRect(0, 0, w, h)
-  }
+window.addEventListener('keydown', onKeyDown)
+
+const hot = (import.meta as any).hot as { dispose(cb: () => void): void } | undefined
+hot?.dispose(() => {
+  cancelAnimationFrame(rafId)
+  window.removeEventListener('resize', resize)
+  window.removeEventListener('keydown', onKeyDown)
+  gui.destroy()
+  const store = globalThis as unknown as Record<string, unknown>
+  if (store[GUI_KEY] === gui) delete store[GUI_KEY]
 })

@@ -24,3 +24,8 @@ canvas {
   inset: 0;
   pointer-events: none;
 }
+
+/* Keep GUI above canvases */
+.lil-gui {
+  z-index: 9999;
+}
