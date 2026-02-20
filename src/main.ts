@@ -25,6 +25,55 @@ function dist(a: Vec2, b: Vec2): number {
   return Math.hypot(dx, dy)
 }
 
+function sub(a: Vec2, b: Vec2): Vec2 {
+  return { x: a.x - b.x, y: a.y - b.y }
+}
+
+function dot(a: Vec2, b: Vec2): number {
+  return a.x * b.x + a.y * b.y
+}
+
+function distPointToSegment(p: Vec2, a: Vec2, b: Vec2): number {
+  const ab = sub(b, a)
+  const ap = sub(p, a)
+  const abLen2 = dot(ab, ab)
+  if (abLen2 === 0) return dist(p, a)
+  const t = clamp(dot(ap, ab) / abLen2, 0, 1)
+  const closest: Vec2 = { x: a.x + ab.x * t, y: a.y + ab.y * t }
+  return dist(p, closest)
+}
+
+function distSegmentToSegment(a1: Vec2, a2: Vec2, b1: Vec2, b2: Vec2): number {
+  // If segments intersect, distance is 0.
+  const cross = (u: Vec2, v: Vec2) => u.x * v.y - u.y * v.x
+  const r = sub(a2, a1)
+  const s = sub(b2, b1)
+  const qp = sub(b1, a1)
+  const rxs = cross(r, s)
+  const qpxr = cross(qp, r)
+
+  if (rxs !== 0) {
+    const t = cross(qp, s) / rxs
+    const u = qpxr / rxs
+    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) return 0
+  } else if (qpxr === 0) {
+    // Collinear: check projection overlap.
+    const rr = dot(r, r)
+    const t0 = rr === 0 ? 0 : dot(sub(b1, a1), r) / rr
+    const t1 = rr === 0 ? 0 : dot(sub(b2, a1), r) / rr
+    const lo = Math.max(0, Math.min(t0, t1))
+    const hi = Math.min(1, Math.max(t0, t1))
+    if (lo <= hi) return 0
+  }
+
+  return Math.min(
+    distPointToSegment(a1, b1, b2),
+    distPointToSegment(a2, b1, b2),
+    distPointToSegment(b1, a1, a2),
+    distPointToSegment(b2, a1, a2),
+  )
+}
+
 type TracedPoint = {
   id: PointId
   prev?: Vec2
@@ -140,6 +189,12 @@ const points: TracedPoint[] = [
   { id: 'botL' }, // blue
   { id: 'botR' }, // purple
 ]
+
+let collisionEventsMs: number[] = []
+let wasColliding = false
+let lastCollisionRealMs = Number.NEGATIVE_INFINITY
+const COLLISION_RED_HOLD_MS = 300
+const COLLISION_RED_FADE_MS = 300
 
 let lastT = performance.now()
 
@@ -344,6 +399,9 @@ params.actions = {
   clearTrails: () => {
     clearTrails()
     params.state.timerMs = 0
+    collisionEventsMs = []
+    wasColliding = false
+    lastCollisionRealMs = Number.NEGATIVE_INFINITY
     if (!params.running) renderPausedState()
   },
   resetAngles: () => {
@@ -662,6 +720,26 @@ function drawOverlay(geom: ReturnType<typeof getGeometry>) {
   drawPoint(geom.botL, params.colors.botL)
   drawPoint(geom.botR, params.colors.botR)
 
+  // Collision indicator (blades: top segment vs bottom segment)
+  const collisionThresholdPx = Math.max(3, params.overlay.pointRadius * 0.6)
+  const bladesDist = distSegmentToSegment(geom.topL, geom.topR, geom.botL, geom.botR)
+  const isCollision = bladesDist <= collisionThresholdPx
+  const nowRealMs = performance.now()
+  if (isCollision) lastCollisionRealMs = nowRealMs
+  const sinceCollisionMs = nowRealMs - lastCollisionRealMs
+  const redAlpha = (() => {
+    if (isCollision) return 1
+    if (!(sinceCollisionMs >= 0 && Number.isFinite(sinceCollisionMs))) return 0
+    if (sinceCollisionMs <= COLLISION_RED_HOLD_MS) return 1
+    const t = (sinceCollisionMs - COLLISION_RED_HOLD_MS) / COLLISION_RED_FADE_MS
+    return clamp(1 - t, 0, 1)
+  })()
+  if (isCollision && !wasColliding) {
+    collisionEventsMs.push(params.state.timerMs)
+    if (collisionEventsMs.length > 200) collisionEventsMs.shift()
+  }
+  wasColliding = isCollision
+
   // Timer (top-left)
   const formatTimer = (msTotal: number) => {
     const ms = Math.max(0, Math.floor(msTotal))
@@ -674,21 +752,64 @@ function drawOverlay(geom: ReturnType<typeof getGeometry>) {
     return `${mm}:${ss}.${mmm}`
   }
 
-  const timerText = formatTimer(params.state.timerMs)
   overlayCtx.save()
-  overlayCtx.font = '400 20px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+  const fontTimer = '400 20px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+  const fontInfo = '400 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
   overlayCtx.textAlign = 'left'
   overlayCtx.textBaseline = 'top'
   const pad = 8
   const x = 10
   const y = 10
-  const metrics = overlayCtx.measureText(timerText)
-  const textW = Math.ceil(metrics.width)
-  const textH = 18
+
+  overlayCtx.font = fontTimer
+  const timerText = formatTimer(params.state.timerMs)
+  const timerW = Math.ceil(overlayCtx.measureText(timerText).width)
+
+  overlayCtx.font = fontInfo
+  const collisionsCount = collisionEventsMs.length
+  const lastCollisionText =
+    collisionsCount > 0 ? ` (last ${formatTimer(collisionEventsMs[collisionsCount - 1])})` : ''
+  const infoText = `collisions: ${collisionsCount}${lastCollisionText}`
+  const infoW = Math.ceil(overlayCtx.measureText(infoText).width)
+
+  const dotR = 5
+  const dotGap = 10
+  const dotArea = dotGap + dotR * 2
+
+  const boxW = Math.max(timerW + dotArea, infoW)
+  const timerLineH = 22
+  const infoLineH = 14
+  const boxH = timerLineH + infoLineH
+
   overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.45)'
-  overlayCtx.fillRect(x - pad, y - pad, textW + pad * 2, textH + pad * 2)
+  overlayCtx.fillRect(x - pad, y - pad, boxW + pad * 2, boxH + pad * 2)
+
+  // Timer text
+  overlayCtx.font = fontTimer
   overlayCtx.fillStyle = 'rgba(255, 255, 255, 0.92)'
   overlayCtx.fillText(timerText, x, y)
+
+  // Dot to the right of timer (green = ok, red = collision)
+  const dotCx = x + timerW + dotGap + dotR
+  const dotCy = y + 10
+  overlayCtx.beginPath()
+  overlayCtx.fillStyle = '#34c759'
+  overlayCtx.arc(dotCx, dotCy, dotR, 0, Math.PI * 2)
+  overlayCtx.fill()
+  if (redAlpha > 0) {
+    overlayCtx.save()
+    overlayCtx.globalAlpha = redAlpha
+    overlayCtx.beginPath()
+    overlayCtx.fillStyle = '#ff3b30'
+    overlayCtx.arc(dotCx, dotCy, dotR, 0, Math.PI * 2)
+    overlayCtx.fill()
+    overlayCtx.restore()
+  }
+
+  // Collision log info
+  overlayCtx.font = fontInfo
+  overlayCtx.fillStyle = redAlpha > 0 ? 'rgba(255, 180, 180, 0.95)' : 'rgba(255, 255, 255, 0.75)'
+  overlayCtx.fillText(infoText, x, y + timerLineH)
   overlayCtx.restore()
 }
 
@@ -758,7 +879,15 @@ function step(dt: number) {
 function frame(t: number) {
   const dt = (t - lastT) / 1000
   lastT = t
-  if (params.running) step(dt)
+  if (params.running) {
+    step(dt)
+  } else {
+    // Keep overlay animating while collision indicator is fading.
+    const since = t - lastCollisionRealMs
+    if (since >= 0 && since <= COLLISION_RED_HOLD_MS + COLLISION_RED_FADE_MS) {
+      renderPausedState()
+    }
+  }
 
   // Fallback: keep URL in sync even if GUI callbacks fail.
   if (t - lastUrlSyncAtMs > 250) {
