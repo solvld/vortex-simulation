@@ -103,6 +103,7 @@ const overlayCtx = get2dContext(overlayCanvas)
 let dpr = 1
 let w = 0
 let h = 0
+let afterResize: (() => void) | undefined
 
 function resize() {
   dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1))
@@ -124,6 +125,8 @@ function resize() {
   trailsCtx.clearRect(0, 0, w, h)
   trailsCtx.fillStyle = 'black'
   trailsCtx.fillRect(0, 0, w, h)
+
+  afterResize?.()
 }
 
 window.addEventListener('resize', resize, { passive: true })
@@ -336,11 +339,15 @@ const guiControllers: ControllerLike[] = []
 
 // Set up actions after params is created
 params.actions = {
-  clearTrails: () => clearTrails(),
+  clearTrails: () => {
+    clearTrails()
+    if (!params.running) renderPausedState()
+  },
   resetAngles: () => {
     params.state.thetaGlobal = 0
     params.state.thetaTop = 0
     params.state.thetaBottom = 0
+    if (!params.running) renderPausedState()
   },
   resetAll: () => {
     params.actions.resetAngles()
@@ -389,6 +396,7 @@ params.actions = {
 
     for (const c of guiControllers) c.updateDisplay()
     syncUrlFromParams()
+    if (!params.running) renderPausedState()
   },
 }
 
@@ -440,6 +448,11 @@ function syncUrlFromParams() {
 
 let lastUrlSyncAtMs = 0
 
+function onParamsChange() {
+  syncUrlFromParams()
+  if (!params.running) renderPausedState()
+}
+
 // --- GUI ---
 const GUI_KEY = '__VORTEX_GUI__'
 const prevGui = (globalThis as unknown as Record<string, unknown>)[GUI_KEY] as GUI | undefined
@@ -447,22 +460,22 @@ prevGui?.destroy()
 
 const gui = new GUI({ title: 'Vortex' })
 ;(globalThis as unknown as Record<string, unknown>)[GUI_KEY] = gui
-const runningController = gui.add(params, 'running').name('running').onChange(syncUrlFromParams)
+const runningController = gui.add(params, 'running').name('running').onChange(onParamsChange)
 guiControllers.push(runningController)
 
 const fMotion = gui.addFolder('motion')
 guiControllers.push(
-  fMotion.add(params.motion, 'timeScale', 0.05, 5, 0.05).name('timeScale').onChange(syncUrlFromParams),
+  fMotion.add(params.motion, 'timeScale', 0.05, 5, 0.05).name('timeScale').onChange(onParamsChange),
 )
 guiControllers.push(
-  fMotion.add(params.motion, 'omegaGlobal', -10, 10, 0.01).name('omegaGlobal').onChange(syncUrlFromParams),
+  fMotion.add(params.motion, 'omegaGlobal', -10, 10, 0.01).name('omegaGlobal').onChange(onParamsChange),
 )
-guiControllers.push(fMotion.add(params.motion, 'omegaTop', -10, 10, 0.01).name('omegaTop').onChange(syncUrlFromParams))
+guiControllers.push(fMotion.add(params.motion, 'omegaTop', -10, 10, 0.01).name('omegaTop').onChange(onParamsChange))
 guiControllers.push(
-  fMotion.add(params.motion, 'omegaBottom', -10, 10, 0.01).name('omegaBottom').onChange(syncUrlFromParams),
+  fMotion.add(params.motion, 'omegaBottom', -10, 10, 0.01).name('omegaBottom').onChange(onParamsChange),
 )
 guiControllers.push(
-  fMotion.add(params.motion, 'dtClampMax', 0.001, 0.25, 0.001).name('dtClampMax').onChange(syncUrlFromParams),
+  fMotion.add(params.motion, 'dtClampMax', 0.001, 0.25, 0.001).name('dtClampMax').onChange(onParamsChange),
 )
 
 const fGeometry = gui.addFolder('geometry')
@@ -470,47 +483,47 @@ guiControllers.push(
   fGeometry
     .add(params.geometry, 'axisOffsetRatio', 0, 0.5, 0.001)
     .name('axisOffsetRatio')
-    .onChange(syncUrlFromParams),
+    .onChange(onParamsChange),
 )
 guiControllers.push(
-  fGeometry.add(params.geometry, 'armLenRatio', 0, 0.5, 0.001).name('armLenRatio').onChange(syncUrlFromParams),
+  fGeometry.add(params.geometry, 'armLenRatio', 0, 0.5, 0.001).name('armLenRatio').onChange(onParamsChange),
 )
 guiControllers.push(
   fGeometry
     .add(params.geometry, 'topPhaseOffset', 0, 90, 1)
     .name('topPhaseOffset')
-    .onChange(syncUrlFromParams),
+    .onChange(onParamsChange),
 )
 guiControllers.push(
   fGeometry
     .add(params.geometry, 'bottomPhaseOffset', 0, 90, 1)
     .name('bottomPhaseOffset')
-    .onChange(syncUrlFromParams),
+    .onChange(onParamsChange),
 )
 
 const fTrails = gui.addFolder('trails')
 guiControllers.push(
-  fTrails.add(params.trails, 'fadeAlpha', 0, 0.025, 0.005).name('fadeAlpha').onChange(syncUrlFromParams),
+  fTrails.add(params.trails, 'fadeAlpha', 0, 0.025, 0.005).name('fadeAlpha').onChange(onParamsChange),
 )
-guiControllers.push(fTrails.add(params.trails, 'width', 0.1, 5, 0.05).name('width').onChange(syncUrlFromParams))
-guiControllers.push(fTrails.add(params.trails, 'alpha', 0, 5, 0.05).name('alpha').onChange(syncUrlFromParams))
-guiControllers.push(fTrails.add(params.trails, 'passes', 1, 40, 1).name('passes').onChange(syncUrlFromParams))
+guiControllers.push(fTrails.add(params.trails, 'width', 0.1, 5, 0.05).name('width').onChange(onParamsChange))
+guiControllers.push(fTrails.add(params.trails, 'alpha', 0, 5, 0.05).name('alpha').onChange(onParamsChange))
+guiControllers.push(fTrails.add(params.trails, 'passes', 1, 40, 1).name('passes').onChange(onParamsChange))
 guiControllers.push(
   fTrails
     .add(params.trails, 'maxSegmentRatio', 0, 0.2, 0.01)
     .name('maxSegmentRatio')
-    .onChange(syncUrlFromParams),
+    .onChange(onParamsChange),
 )
 
 const fOverlay = gui.addFolder('overlay')
-guiControllers.push(fOverlay.add(params.overlay, 'rodAlpha', 0, 1, 0.01).name('rodAlpha').onChange(syncUrlFromParams))
-guiControllers.push(fOverlay.addColor(params.overlay, 'axisColor').name('axisColor').onChange(syncUrlFromParams))
+guiControllers.push(fOverlay.add(params.overlay, 'rodAlpha', 0, 1, 0.01).name('rodAlpha').onChange(onParamsChange))
+guiControllers.push(fOverlay.addColor(params.overlay, 'axisColor').name('axisColor').onChange(onParamsChange))
 
 const fColors = gui.addFolder('colors')
-guiControllers.push(fColors.addColor(params.colors, 'topL').name('topL').onChange(syncUrlFromParams))
-guiControllers.push(fColors.addColor(params.colors, 'topR').name('topR').onChange(syncUrlFromParams))
-guiControllers.push(fColors.addColor(params.colors, 'botL').name('botL').onChange(syncUrlFromParams))
-guiControllers.push(fColors.addColor(params.colors, 'botR').name('botR').onChange(syncUrlFromParams))
+guiControllers.push(fColors.addColor(params.colors, 'topL').name('topL').onChange(onParamsChange))
+guiControllers.push(fColors.addColor(params.colors, 'topR').name('topR').onChange(onParamsChange))
+guiControllers.push(fColors.addColor(params.colors, 'botL').name('botL').onChange(onParamsChange))
+guiControllers.push(fColors.addColor(params.colors, 'botR').name('botR').onChange(onParamsChange))
 
 const fActions = gui.addFolder('actions')
 fActions.add(params.actions, 'clearTrails').name('clearTrails')
@@ -520,6 +533,10 @@ fActions.add(params.actions, 'resetToDefault').name('resetToDefault')
 
 // Ensure URL reflects current GUI state immediately.
 syncUrlFromParams()
+
+afterResize = () => {
+  if (!params.running) renderPausedState()
+}
 
 function getGeometry() {
   const minDim = Math.min(w, h)
@@ -631,6 +648,27 @@ function drawOverlay(geom: ReturnType<typeof getGeometry>) {
   drawPoint(geom.topR, params.colors.topR)
   drawPoint(geom.botL, params.colors.botL)
   drawPoint(geom.botR, params.colors.botR)
+}
+
+function syncPointsToGeometry(geom: ReturnType<typeof getGeometry>) {
+  const nextPositions: Record<PointId, Vec2> = {
+    topL: geom.topL,
+    topR: geom.topR,
+    botL: geom.botL,
+    botR: geom.botR,
+  }
+
+  for (const p of points) {
+    const next = nextPositions[p.id]
+    p.now = next
+    p.prev = next
+  }
+}
+
+function renderPausedState() {
+  const geom = getGeometry()
+  syncPointsToGeometry(geom)
+  drawOverlay(geom)
 }
 
 function step(dt: number) {
