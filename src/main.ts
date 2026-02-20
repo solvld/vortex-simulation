@@ -43,6 +43,9 @@ type Params = {
   geometry: {
     axisOffsetRatio: number
     armLenRatio: number
+    // Phase offsets (degrees) applied to each rotor arm.
+    topPhaseOffset: number
+    bottomPhaseOffset: number
   }
   trails: {
     fadeAlpha: number
@@ -170,11 +173,15 @@ function parseURLParams(): Partial<Params> {
   // Geometry parameters
   const axisOffsetRatio = urlParams.get('axisOffsetRatio')
   const armLenRatio = urlParams.get('armLenRatio')
+  const topPhaseOffset = urlParams.get('topPhaseOffset')
+  const bottomPhaseOffset = urlParams.get('bottomPhaseOffset')
 
-  if (axisOffsetRatio || armLenRatio) {
+  if (axisOffsetRatio || armLenRatio || topPhaseOffset || bottomPhaseOffset) {
     parsed.geometry = {}
     if (axisOffsetRatio) parsed.geometry.axisOffsetRatio = parseFloat(axisOffsetRatio)
     if (armLenRatio) parsed.geometry.armLenRatio = parseFloat(armLenRatio)
+    if (topPhaseOffset) parsed.geometry.topPhaseOffset = clamp(parseFloat(topPhaseOffset), 0, 90)
+    if (bottomPhaseOffset) parsed.geometry.bottomPhaseOffset = clamp(parseFloat(bottomPhaseOffset), 0, 90)
   }
 
   // Trails parameters
@@ -279,6 +286,8 @@ const defaultParams: Params = {
   geometry: {
     axisOffsetRatio: 0.22,
     armLenRatio: 0.18,
+    topPhaseOffset: 0,
+    bottomPhaseOffset: 0,
   },
   trails: {
     fadeAlpha: 0.01, // smaller => longer trails
@@ -348,6 +357,8 @@ params.actions = {
 
     params.geometry.axisOffsetRatio = defaultParams.geometry.axisOffsetRatio
     params.geometry.armLenRatio = defaultParams.geometry.armLenRatio
+    params.geometry.topPhaseOffset = defaultParams.geometry.topPhaseOffset
+    params.geometry.bottomPhaseOffset = defaultParams.geometry.bottomPhaseOffset
 
     params.trails.fadeAlpha = defaultParams.trails.fadeAlpha
     params.trails.width = defaultParams.trails.width
@@ -404,6 +415,8 @@ function syncUrlFromParams() {
   // geometry
   sp.set('axisOffsetRatio', String(params.geometry.axisOffsetRatio))
   sp.set('armLenRatio', String(params.geometry.armLenRatio))
+  sp.set('topPhaseOffset', String(params.geometry.topPhaseOffset))
+  sp.set('bottomPhaseOffset', String(params.geometry.bottomPhaseOffset))
 
   // trails
   sp.set('fadeAlpha', String(params.trails.fadeAlpha))
@@ -462,6 +475,18 @@ guiControllers.push(
 guiControllers.push(
   fGeometry.add(params.geometry, 'armLenRatio', 0, 0.5, 0.001).name('armLenRatio').onChange(syncUrlFromParams),
 )
+guiControllers.push(
+  fGeometry
+    .add(params.geometry, 'topPhaseOffset', 0, 90, 1)
+    .name('topPhaseOffset')
+    .onChange(syncUrlFromParams),
+)
+guiControllers.push(
+  fGeometry
+    .add(params.geometry, 'bottomPhaseOffset', 0, 90, 1)
+    .name('bottomPhaseOffset')
+    .onChange(syncUrlFromParams),
+)
 
 const fTrails = gui.addFolder('trails')
 guiControllers.push(
@@ -507,8 +532,9 @@ function getGeometry() {
   const bottomAxis = add(center, rotate({ x: 0, y: axisOffset }, params.state.thetaGlobal))
 
   // Arms rotate in the assembly frame (so total orientation is global + local).
-  const topArmAngle = params.state.thetaGlobal + params.state.thetaTop
-  const bottomArmAngle = params.state.thetaGlobal + params.state.thetaBottom
+  const degToRad = (deg: number) => (deg * Math.PI) / 180
+  const topArmAngle = params.state.thetaGlobal + params.state.thetaTop + degToRad(params.geometry.topPhaseOffset)
+  const bottomArmAngle = params.state.thetaGlobal + params.state.thetaBottom + degToRad(params.geometry.bottomPhaseOffset)
 
   const armVecR = (angle: number) => rotate({ x: armLen, y: 0 }, angle)
   const armVecL = (angle: number) => rotate({ x: -armLen, y: 0 }, angle)

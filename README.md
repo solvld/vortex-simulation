@@ -39,7 +39,7 @@ http://localhost:5173/?omegaGlobal=1.5&omegaTop=3&fadeAlpha=0.005&topL=ff0000
 **Available parameters:**
 
 - **Motion**: `timeScale`, `omegaGlobal`, `omegaTop`, `omegaBottom`, `dtClampMax`
-- **Geometry**: `axisOffsetRatio`, `armLenRatio`
+- **Geometry**: `axisOffsetRatio`, `armLenRatio`, `topPhaseOffset`, `bottomPhaseOffset`
 - **Trails**: `fadeAlpha`, `width`, `alpha`, `passes`, `maxSegmentRatio`
 - **Overlay**: `rodWidth`, `rodAlpha`, `rodColor`, `axisColor`, `axisShadowBlur`, `centerAxisRadius`, `rotorAxisRadius`, `pointRadius`, `pointShadowBlur`
 - **Colors**: `topL`, `topR`, `botL`, `botR` (hex colors without `#`, e.g., `ff3b30`)
@@ -56,6 +56,8 @@ All simulation parameters can be adjusted in real-time via the GUI panel:
 - **Geometry**
   - `axisOffsetRatio`: distance between rotation axes
   - `armLenRatio`: length of rotating arms
+  - `topPhaseOffset`: phase offset for the top arm (degrees)
+  - `bottomPhaseOffset`: phase offset for the bottom arm (degrees)
 
 - **Trails**
   - `fadeAlpha`: trail fade rate (smaller = longer trails)
