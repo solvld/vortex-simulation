@@ -29,3 +29,16 @@ canvas {
 .lil-gui {
   z-index: 9999;
 }
+
+/* Mobile: dock GUI to bottom */
+@media (max-width: 768px), (pointer: coarse) {
+  .lil-gui {
+    top: auto !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 12px 12px 0 0;
+  }
+}

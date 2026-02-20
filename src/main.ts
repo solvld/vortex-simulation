@@ -70,6 +70,7 @@ type Params = {
     thetaGlobal: number
     thetaTop: number
     thetaBottom: number
+    timerMs: number
   }
   actions: {
     clearTrails: () => void
@@ -321,6 +322,7 @@ const defaultParams: Params = {
     thetaGlobal: 0,
     thetaTop: 0,
     thetaBottom: 0,
+    timerMs: 0,
   },
   actions: {
     clearTrails: () => {},
@@ -341,6 +343,7 @@ const guiControllers: ControllerLike[] = []
 params.actions = {
   clearTrails: () => {
     clearTrails()
+    params.state.timerMs = 0
     if (!params.running) renderPausedState()
   },
   resetAngles: () => {
@@ -460,6 +463,16 @@ prevGui?.destroy()
 
 const gui = new GUI({ title: 'Vortex' })
 ;(globalThis as unknown as Record<string, unknown>)[GUI_KEY] = gui
+
+// Start collapsed on mobile-sized screens.
+const mobileGuiMq = window.matchMedia('(max-width: 768px), (pointer: coarse)')
+const onMobileGuiMqChange = () => {
+  if (mobileGuiMq.matches) gui.close()
+}
+onMobileGuiMqChange()
+if ('addEventListener' in mobileGuiMq) mobileGuiMq.addEventListener('change', onMobileGuiMqChange)
+else (mobileGuiMq as any).addListener(onMobileGuiMqChange)
+
 const runningController = gui.add(params, 'running').name('running').onChange(onParamsChange)
 guiControllers.push(runningController)
 
@@ -648,6 +661,35 @@ function drawOverlay(geom: ReturnType<typeof getGeometry>) {
   drawPoint(geom.topR, params.colors.topR)
   drawPoint(geom.botL, params.colors.botL)
   drawPoint(geom.botR, params.colors.botR)
+
+  // Timer (top-left)
+  const formatTimer = (msTotal: number) => {
+    const ms = Math.max(0, Math.floor(msTotal))
+    const minutes = Math.floor(ms / 60000)
+    const seconds = Math.floor((ms % 60000) / 1000)
+    const millis = ms % 1000
+    const mm = String(minutes).padStart(2, '0')
+    const ss = String(seconds).padStart(2, '0')
+    const mmm = String(millis).padStart(3, '0')
+    return `${mm}:${ss}.${mmm}`
+  }
+
+  const timerText = formatTimer(params.state.timerMs)
+  overlayCtx.save()
+  overlayCtx.font = '400 20px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+  overlayCtx.textAlign = 'left'
+  overlayCtx.textBaseline = 'top'
+  const pad = 8
+  const x = 10
+  const y = 10
+  const metrics = overlayCtx.measureText(timerText)
+  const textW = Math.ceil(metrics.width)
+  const textH = 18
+  overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.45)'
+  overlayCtx.fillRect(x - pad, y - pad, textW + pad * 2, textH + pad * 2)
+  overlayCtx.fillStyle = 'rgba(255, 255, 255, 0.92)'
+  overlayCtx.fillText(timerText, x, y)
+  overlayCtx.restore()
 }
 
 function syncPointsToGeometry(geom: ReturnType<typeof getGeometry>) {
@@ -676,6 +718,7 @@ function step(dt: number) {
   params.state.thetaGlobal += params.motion.omegaGlobal * dts
   params.state.thetaTop += params.motion.omegaTop * dts
   params.state.thetaBottom += params.motion.omegaBottom * dts
+  params.state.timerMs += dts * 1000
 
   const geom = getGeometry()
   const maxSegment = params.trails.maxSegmentRatio * Math.min(w, h) // prevents long “tails” on jumps
@@ -730,6 +773,9 @@ let rafId = requestAnimationFrame(frame)
 
 function onKeyDown(e: KeyboardEvent) {
   if (e.code === 'Space') {
+    // Space should control pause ONLY (do not activate focused GUI buttons).
+    e.preventDefault()
+    e.stopPropagation()
     params.running = !params.running
     runningController.setValue(params.running)
   }
@@ -739,13 +785,16 @@ function onKeyDown(e: KeyboardEvent) {
 }
 
 // Small controls (optional but handy)
-window.addEventListener('keydown', onKeyDown)
+const keydownOptions = { capture: true } as const
+window.addEventListener('keydown', onKeyDown, keydownOptions)
 
 const hot = (import.meta as any).hot as { dispose(cb: () => void): void } | undefined
 hot?.dispose(() => {
   cancelAnimationFrame(rafId)
   window.removeEventListener('resize', resize)
-  window.removeEventListener('keydown', onKeyDown)
+  window.removeEventListener('keydown', onKeyDown, keydownOptions)
+  if ('removeEventListener' in mobileGuiMq) mobileGuiMq.removeEventListener('change', onMobileGuiMqChange)
+  else (mobileGuiMq as any).removeListener(onMobileGuiMqChange)
   gui.destroy()
   const store = globalThis as unknown as Record<string, unknown>
   if (store[GUI_KEY] === gui) delete store[GUI_KEY]
